@@ -2,8 +2,8 @@ id: fetch_url_summarizer
 name: 根据URL获取摘要
 author: cuman
 version: "1.0.0"
-homepage: https://github.com/cuman/astrbot_plugin_image_replay
-desc: 调用根据URL获取摘要【https://articlesummarizer.com/】
+homepage: https://github.com/cumany/astrbot_plugin_fetch_summarizer
+desc: 调用根据URL获取网站摘要
 tags:
   - url
   - summary
