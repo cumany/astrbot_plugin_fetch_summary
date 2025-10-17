@@ -2,7 +2,7 @@ id: fetch_url_summarizer
 name: 根据URL获取摘要
 author: cuman
 version: "1.0.0"
-homepage: https://github.com/cumany/astrbot_plugin_fetch_summary
+repo: "https://github.com/cumany/astrbot_plugin_fetch_summary"
 desc: 调用根据URL获取网站摘要
 tags:
   - url
