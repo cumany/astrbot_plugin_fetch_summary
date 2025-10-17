@@ -1,0 +1,10 @@
+id: fetch_url_summarizer
+name: 根据URL获取摘要
+author: cuman
+version: "1.0.0"
+homepage: https://github.com/cuman/astrbot_plugin_image_replay
+desc: 调用根据URL获取摘要【https://articlesummarizer.com/】
+tags:
+  - url
+  - summary
+  - automation

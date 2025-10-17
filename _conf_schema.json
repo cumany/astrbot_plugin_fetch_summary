@@ -1,0 +1,45 @@
+{
+    "enable_translation": {
+        "description": "启用翻译功能",
+        "type": "bool",
+        "hint": "是否对英文摘要内容进行自动翻译",
+        "default": true
+    },
+    "blacklist_groups": {
+        "description": "群组黑名单",
+        "type": "list",
+        "hint": "不允许使用此插件的群组 ID 列表",
+        "default": []
+    },
+    "trigger_keywords": {
+        "description": "触发关键词",
+        "type": "list",
+        "hint": "仅当消息包含这些关键词时才触发处理，留空则处理所有 URL",
+        "default": []
+    },
+    "timeout": {
+        "description": "摘要请求超时（秒）",
+        "type": "int",
+        "hint": "单次摘要请求的最大等待时间",
+        "default": 30
+    },
+    "max_retries": {
+        "description": "摘要请求最大重试次数",
+        "type": "int",
+        "hint": "网络异常时的重试次数",
+        "default": 2
+    },
+    "blacklist_keywords": {
+        "description": "域名链接黑名单",
+        "type": "list",
+        "hint": "当URL包含这些关键词跳过处理",
+        "default": ["baidu.com"]
+    },
+    "provider": {
+        "description": "翻译使用的模型",
+        "type": "string",
+        "default": "",
+        "hint": "指定翻译时使用的 AI 模型 ID",
+        "_special":"select_provider"
+    }
+}
