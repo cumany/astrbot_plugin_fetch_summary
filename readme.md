@@ -2,7 +2,7 @@
 
 ## 插件介绍
 
-`fetch_url_summarizer` 是一款基于 AstrBot 平台的插件，能够自动监听群聊消息中的 URL 链接，并自动获取链接内容的摘要信息，支持自动翻译功能（默认开启），帮助用户快速了解网页内容核心。插件内置了对 articlesummarizer.com 上游接口的调用逻辑，无需额外部署 Docker 服务即可使用。
+`fetch_url_summarizer` 是一款基于 AstrBot 平台的插件，能够自动监听群聊消息中的 URL 链接，并自动获取链接内容的摘要信息，支持自动翻译功能（默认开启），帮助用户快速了解网页内容核心。插件内置了对 articlesummarizer.com 上游接口的调用逻辑。
 
 ### 功能特点
 - 自动识别群聊消息中的 URL 链接
@@ -66,4 +66,4 @@ https://example.com/article
 
 - 版本：1.0.0
 - 作者：Cuman
-- 项目地址：https://github.com/cumany/astrbot_plugin_fetch_url_summarizer
+- 项目地址：https://github.com/cumany/astrbot_plugin_fetch_summarizer
