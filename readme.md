@@ -66,4 +66,4 @@ https://example.com/article
 
 - 版本：1.0.0
 - 作者：Cuman
-- 项目地址：https://github.com/cumany/astrbot_plugin_fetch_summarizer
+- 项目地址：https://github.com/cumany/astrbot_plugin_fetch_summary
