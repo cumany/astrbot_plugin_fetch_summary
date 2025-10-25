@@ -1,9 +1,34 @@
 {
-    "enable_translation": {
-        "description": "启用翻译功能",
+    "enable_summary": {
+        "description": "是否启用内容摘要",
         "type": "bool",
-        "hint": "是否对英文摘要内容进行自动翻译",
+        "hint": "关闭后不再自动发送摘要",
         "default": true
+    },
+    "summary_prefix": {
+        "description": "摘要提示词",
+        "type": "string",
+        "hint": "用于自动回复的摘要前缀",
+        "default": "📝内容摘要："
+    },
+    "enable_llm_postprocess": {
+        "description": "是否启用大模型处理",
+        "type": "bool",
+        "hint": "开启后会把摘要交给所选大模型按提示词进一步润色或翻译",
+        "default": false
+    },
+    "llm_prompt_template": {
+        "description": "大模型提示词",
+        "type": "string",
+        "hint": "可包含 {summary} 占位符，用于插入原始摘要",
+        "default": "请将以下摘要润色成自然的中文群聊用语，保持原意：\n\n{summary}"
+    },
+    "provider": {
+        "description": "大模型提供商",
+        "type": "string",
+        "default": "",
+        "hint": "可选，留空则使用 AstrBot 当前默认模型",
+        "_special": "select_provider"
     },
     "blacklist_groups": {
         "description": "群组黑名单",
@@ -33,13 +58,8 @@
         "description": "域名链接黑名单",
         "type": "list",
         "hint": "当URL包含这些关键词跳过处理",
-        "default": ["baidu.com"]
-    },
-    "provider": {
-        "description": "翻译使用的模型",
-        "type": "string",
-        "default": "",
-        "hint": "指定翻译时使用的 AI 模型 ID",
-        "_special":"select_provider"
+        "default": [
+            "baidu.com"
+        ]
     }
 }

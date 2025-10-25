@@ -11,6 +11,11 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.event.filter import EventMessageType
 from astrbot.api.star import Context, Star, register
 import astrbot.api.message_components as Comp
+
+DEFAULT_LLM_PROMPT = (
+    "请将以下摘要润色成自然的中文群聊用语，保持原意：\n\n{summary}"
+)
+
 @register(
     "fetch_url_summarizer",
     "Cuman",
@@ -27,12 +32,19 @@ class URLSummarizerPlugin(Star):
 
         # 单条消息中可能存在多个 URL，因此预先构建正则表达式复用。
         self.url_pattern = re.compile(
-            r"https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?",
-            re.IGNORECASE,
+            r'''
+            (?<![A-Za-z0-9._~%!$&'*+,;=:@/?#-])   # 左边界（不含括号）
+            https?://
+            (?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+     # 域名
+            (?::\d{2,5})?                         # 端口
+            (?:/[^\s<>"\]]*)?                     # 路径/查询/片段（排除 ] 防 Markdown）
+            (?![A-Za-z0-9._~%!$&'*+,;=:@/?#-])    # 右边界（不含括号）
+            ''',
+            re.IGNORECASE | re.VERBOSE,
         )
 
-        # 用于判断摘要文本是否已经包含中文，避免重复翻译。
-        self.chinese_pattern = re.compile(r"[\u4e00-\u9fff]+")
+        # 自定义摘要提示词，区分不同机器人的回复。
+        self.summary_prefix = self.config.get("summary_prefix", "📝内容摘要：")
 
         logger.info("fetch_url_summarizer 已初始化")
 
@@ -40,60 +52,91 @@ class URLSummarizerPlugin(Star):
     async def on_message(self, event: AstrMessageEvent):
         """监听所有群聊消息，自动处理其中的 URL。"""
         try:
-            for component in event.message_obj.message:
-                if isinstance(component, Comp.Forward) or isinstance(component, Comp.Reply):
-                    return  # 直接返回，不处理转发或引用消息
+            # ---------- 1. 跳过机器人自身消息 ----------
+            if event.get_sender_id() == event.get_self_id():
+                logger.debug("收到自身消息，忽略")
+                return
+
+            # ---------- 2. 跳过转发/引用 ----------
+            for comp in event.message_obj.message:
+                if isinstance(comp, (Comp.Forward, Comp.Reply)):
+                    return
+
+            # ---------- 3. 摘要开关 ----------
+            if not self.config.get("enable_summary", True):
+                logger.debug("摘要功能已关闭，跳过处理")
+                return
+
+            # ---------- 4. 黑名单群组 ----------
             group_id = event.get_group_id()
-            if group_id and group_id in self.config.get("blacklist_groups", []):
-                logger.debug("命中黑名单群组，跳过处理")
-                return
-            # 新增：检查消息中是否包含reply和内容摘要
-            message_text = event.message_str
-            message_obj_str = str(event.message_obj)
-            # 检查是否包含"内容摘要"
-            if  re.search(r"内容摘要：", message_obj_str):
-                logger.debug("消息包含内容摘要，不再解析，以免循环解析")
-                return
+            if group_id:
+                blacklist_keywords = self.config.get("blacklist_groups", [])
+                # 只要 group_id 中命中任意关键字就跳过
+                if any(kw in group_id for kw in blacklist_keywords):
+                    logger.debug("群组 ID 命中黑名单关键字，跳过处理: %s", group_id)
+                    return
+
+            # ---------- 5. 空消息 / 关键词过滤 ----------
+            message_text = event.message_str or ""
             if not message_text:
                 return
 
+            if self._is_summary_message(message_text):
+                logger.debug("消息已包含内容摘要，避免循环解析")
+                return
             trigger_keywords = self.config.get("trigger_keywords", [])
-            if trigger_keywords and not any(keyword in message_text for keyword in trigger_keywords):
+            if trigger_keywords and not any(k in message_text for k in trigger_keywords):
                 logger.debug("消息未包含触发关键词，跳过处理")
                 return
 
+            # ---------- 6. 提取并过滤 URL ----------
             urls = self._extract_urls(message_text)
             if not urls:
                 return
+            logger.info("检测到 %s 个URL: %s", len(urls), urls)
 
-            logger.info("在消息中检测到 %s 个 URL: %s", len(urls), urls)
-            # 黑名单关键词过滤
             blacklist_keywords = self.config.get("blacklist_keywords", [])
 
             def is_blacklisted(url: str) -> bool:
-                return any(keyword in url for keyword in blacklist_keywords)
+                return any(k in url for k in blacklist_keywords)
 
             for url in urls:
                 if is_blacklisted(url):
-                    logger.debug(f"URL 命中黑名单关键词，跳过处理: {url}")
+                    logger.debug("URL命中黑名单关键词，跳过: %s", url)
                     continue
                 try:
                     summary = await self._get_url_summary(url)
                     if summary:
-                        yield event.plain_result(f"📝内容摘要：\n{url}\n{summary}")
-                except Exception as exc:  # noqa: BLE001 - 记录错误后继续处理其他 URL
-                    logger.error("处理 URL %s 时发生异常: %s", url, exc, exc_info=True)
-        except Exception as exc:  # noqa: BLE001 - 顶层兜底记录异常
-            logger.error("处理消息时发生异常: %s", exc, exc_info=True)
+                        parts = [url, summary]
+                        if self.summary_prefix:
+                            parts.insert(0, self.summary_prefix)
+                        yield event.plain_result("\n".join(parts))
+                except Exception as exc:
+                    logger.error("处理URL %s 异常: %s", url, exc, exc_info=True)
+
+        except Exception as exc:
+            logger.error("on_message 顶层异常: %s", exc, exc_info=True)
+
+
+    def _is_summary_message(self, text: str) -> bool:
+        """根据摘要前缀判断是否为已处理的摘要消息。"""
+        prefixes = [self.summary_prefix, "📝内容摘要：", "内容摘要："]
+        return any(prefix and prefix in text for prefix in prefixes)
 
     def _extract_urls(self, text: str) -> List[str]:
-        """从文本中提取唯一且有效的 URL 列表。"""
-        urls = self.url_pattern.findall(text)
-        unique_urls: List[str] = []
-        for url in urls:
-            if url and url not in unique_urls and self._is_valid_url(url):
-                unique_urls.append(url)
-        return unique_urls
+        match = self.url_pattern.search(text)
+        if not match:
+            return []
+
+        url = match.group(0).rstrip('.,;:!?，。！？：；、)]】》’”\'"')  # 去尾部标点
+
+        for left, right in (('(', ')'), ('（', '）')):
+            lack = url.count(right) - url.count(left)
+            if lack > 0:
+                url = url[:-lack]
+
+        url = url.lstrip('<([（【《')  # 去掉常见左包裹符
+        return [url] if self._is_valid_url(url) else []
 
     def _is_valid_url(self, url: str) -> bool:
         """通过标准库解析结果判断 URL 是否有效。"""
@@ -103,8 +146,45 @@ class URLSummarizerPlugin(Star):
         except Exception:  # noqa: BLE001 - urlparse 理论上只抛 ValueError
             return False
 
+    async def _postprocess_with_llm(self, summary: str) -> str:
+        """可选地调用大模型，根据提示词对摘要进行润色或翻译。"""
+        if not self.config.get("enable_llm_postprocess", False):
+            return summary
+
+        provider_id = self.config.get("provider", "")
+        provider = (
+            self.context.get_provider_by_id(provider_id)
+            if provider_id
+            else self.context.get_using_provider()
+        )
+        if not provider:
+            logger.warning("未找到可用的大模型提供商，跳过 LLM 处理")
+            return summary
+
+        prompt_template = self.config.get("llm_prompt_template") or DEFAULT_LLM_PROMPT
+        try:
+            prompt = prompt_template.replace("{summary}", summary)
+            if "{summary}" not in prompt_template:
+                prompt = f"{prompt_template}\n\n{summary}"
+
+            response = await provider.text_chat(
+                prompt=prompt,
+                session_id=None,
+                contexts=[],
+                image_urls=[],
+                system_prompt="你是一位善于润色文本的助手，保持内容完整准确。",
+            )
+            if response and getattr(response, "completion_text", None):
+                return response.completion_text.strip() or summary
+            logger.warning("大模型未返回文本内容，保留原始摘要")
+            return summary
+        except Exception as exc:  # noqa: BLE001 - 捕获大模型调用异常
+            logger.error("大模型处理摘要失败: %s", exc, exc_info=True)
+            return summary
+
+
     async def _get_url_summary(self, url: str) -> Optional[str]:
-        """调用上游摘要服务获取 URL 摘要，必要时触发翻译。"""
+        """调用上游摘要服务获取 URL 摘要。"""
         timeout = self.config.get("timeout", 30)
         max_retries = self.config.get("max_retries", 2)
 
@@ -116,8 +196,7 @@ class URLSummarizerPlugin(Star):
                     logger.warning("摘要接口返回了空内容: %s", url)
                     return None
 
-                if self.config.get("enable_translation", True):
-                    content = await self._translate_if_needed(content)
+                content = await self._postprocess_with_llm(content)
                 return content
             except asyncio.TimeoutError:
                 logger.error("摘要接口请求超时: %s", url)
@@ -169,56 +248,8 @@ class URLSummarizerPlugin(Star):
 
                 return summary_text.strip()
 
-    async def _translate_if_needed(self, content: str) -> str:
-        """摘要为英文时调用 LLM 进行翻译。"""
-        try:
-            if self.chinese_pattern.search(content):
-                logger.debug("摘要包含中文，跳过翻译")
-                return content
-
-            logger.info("检测到英文摘要，触发翻译")
-            translated = await self._translate_content(content)
-            return translated or content
-        except Exception as exc:  # noqa: BLE001 - 翻译失败时保留原文
-            logger.error("翻译过程中发生异常: %s", exc, exc_info=True)
-            return content
-
-    async def _translate_content(self, content: str) -> Optional[str]:
-        """通过 AstrBot 绑定的 LLM 提供商执行翻译。"""
-        try:
-            custom_provider = self.config.get("provider", "")
-            provider = (
-                self.context.get_provider_by_id(custom_provider)
-                if custom_provider
-                else self.context.get_using_provider()
-            )
-            if not provider:
-                logger.warning("未找到可用的 LLM 提供商，跳过翻译")
-                return None
-
-            translation_prompt = (
-                "请将以下英文内容翻译成中文，保持原有的格式和结构：\n\n"
-                f"{content}"
-            )
-            response = await provider.text_chat(
-                prompt=translation_prompt,
-                session_id=None,
-                contexts=[],
-                image_urls=[],
-                system_prompt="你是一名专业的翻译助手，请准确地将英文翻译成中文。",
-            )
-
-            if response and getattr(response, "completion_text", None):
-                translated_text = response.completion_text.strip()
-                logger.info("翻译完成")
-                return translated_text
-
-            logger.warning("翻译接口返回空内容")
-            return None
-        except Exception as exc:  # noqa: BLE001 - 记录失败原因
-            logger.error("翻译请求失败: %s", exc, exc_info=True)
-            return None
-
     async def terminate(self):
         """插件卸载时执行清理逻辑。"""
         logger.info("fetch_url_summarizer 插件已卸载")
+
+
